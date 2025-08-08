@@ -27,6 +27,8 @@ import mediapy
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo, nvmlShutdown
+
 
 from src.inference.droid_jointpos import Client as DroidJointPosClient
 
@@ -36,6 +38,17 @@ def main(
         headless: bool = True,
         scene: int = 1,
         ):
+    # Initialize NVML
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(0)
+
+    # Get memory info
+    mem_info = nvmlDeviceGetMemoryInfo(handle)
+    # Print memory in GB
+    print(f"GPU Memory Used: {mem_info.used / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Total: {mem_info.total / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Free: {mem_info.free / (1024 ** 3):.2f} GB")
+    
     # launch omniverse app with arguments (inside function to prevent overriding tyro)
     from isaaclab.app import AppLauncher
     parser = argparse.ArgumentParser(description="Tutorial on creating an empty stage.")
@@ -50,7 +63,14 @@ def main(
     import src.environments # noqa: F401
     from isaaclab_tasks.utils import parse_env_cfg
 
+    # Get memory info
+    mem_info = nvmlDeviceGetMemoryInfo(handle)
+    # Print memory in GB
+    print(f"GPU Memory Used: {mem_info.used / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Total: {mem_info.total / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Free: {mem_info.free / (1024 ** 3):.2f} GB")
 
+    print("Creating Env")
     # Initialize the env
     env_cfg = parse_env_cfg(
         "DROID",
@@ -74,7 +94,7 @@ def main(
 
     obs, _ = env.reset()
     obs, _ = env.reset() # need second render cycle to get correctly loaded materials
-    client = DroidJointPosClient()
+    # client = DroidJointPosClient()
 
 
     video_dir = Path("runs") / datetime.now().strftime("%Y-%m-%d") / datetime.now().strftime("%H-%M-%S")
@@ -85,7 +105,12 @@ def main(
     with torch.no_grad():
         for ep in range(episodes):
             for _ in tqdm(range(max_steps), desc=f"Episode {ep+1}/{episodes}"):
-                ret = client.infer(obs, "put the marker in the mug")
+                # ret = client.infer(obs, "put the marker in the mug")
+                external_image = obs["policy"]["external_cam"][0].clone().detach().cpu().numpy() # (720, 1280, 3) [0, 255]
+                wrist_image = obs["policy"]["wrist_cam"][0].clone().detach().cpu().numpy() # (720, 1280, 3) [0, 255]
+                import numpy as np
+                both = np.concatenate([external_image[::4, ::4], wrist_image[::4, ::4]], axis=1)
+                ret = {"action": torch.zeros(8), "viz": both}
                 if not headless:
                     cv2.imshow("Right Camera", cv2.cvtColor(ret["viz"], cv2.COLOR_RGB2BGR))
                     cv2.waitKey(1)
@@ -95,7 +120,7 @@ def main(
                 if term or trunc:
                     break
 
-            client.reset()
+            # client.reset()
             mediapy.write_video(
                 video_dir / f"episode_{ep}.mp4",
                 video,
@@ -103,8 +128,36 @@ def main(
             )
             video = []
 
+    # Get memory info
+    mem_info = nvmlDeviceGetMemoryInfo(handle)
+    # Print memory in GB
+    print(f"GPU Memory Used: {mem_info.used / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Total: {mem_info.total / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Free: {mem_info.free / (1024 ** 3):.2f} GB")
+
     env.close()
+    torch.cuda.empty_cache()
+
+    # Get memory info
+    mem_info = nvmlDeviceGetMemoryInfo(handle)
+    # Print memory in GB
+    print("After env close")
+    print(f"GPU Memory Used: {mem_info.used / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Total: {mem_info.total / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Free: {mem_info.free / (1024 ** 3):.2f} GB")
+
     simulation_app.close()
 
+    # Get memory info
+    mem_info = nvmlDeviceGetMemoryInfo(handle)
+    # Print memory in GB
+    print(f"GPU Memory Used: {mem_info.used / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Total: {mem_info.total / (1024 ** 3):.2f} GB")
+    print(f"GPU Memory Free: {mem_info.free / (1024 ** 3):.2f} GB")
+
 if __name__ == "__main__":
-    args = tyro.cli(main)
+    # args = tyro.cli(main)
+    # run main a second time
+    main(episodes=1, scene=1)
+    main(episodes=1, scene=2)
+    main(episodes=1, scene=3)
